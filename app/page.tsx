@@ -1,34 +1,44 @@
 import ShowCard from "../components/ShowCard";
 import SearchBar from "../components/SearchBar";
 import FeaturedCountdown from "../components/FeaturedCountdown";
+import ShowsGrid from "../components/ShowsGrid";
 import { fetchShows } from "../lib/tvmaze";
 
 export default async function Home() {
   const shows = await fetchShows();
 
-  // sort: shows with nextAirstamp first, nearest date first
-  const sorted = shows.slice().sort((a, b) => {
-    if (a.nextAirstamp && b.nextAirstamp) {
-      return new Date(a.nextAirstamp).getTime() - new Date(b.nextAirstamp).getTime();
-    }
-    if (a.nextAirstamp) return -1;
-    if (b.nextAirstamp) return 1;
-    return 0;
-  });
+  // Minimum rating threshold for high-quality shows (7.0 out of 10)
+  const MIN_RATING = 7.0;
 
-  // Only keep shows that have a future nextAirstamp or that haven't premiered yet
+  // Filter shows: must have a high rating
+  // Note: TMDB shows often don't have scheduled next episodes, so we include all highly rated shows
   const now = Date.now();
-  const filtered = sorted.filter((s) => {
+  const filtered = shows.filter((s) => {
+    // Only include shows with rating at or above threshold
+    if (!s.rating || s.rating < MIN_RATING) return false;
+    
+    // Include the show if it has an upcoming episode, or if it just has a high rating
     if (s.nextAirstamp) {
       const t = new Date(s.nextAirstamp).getTime();
       return t > now;
     }
-    // if no nextAirstamp but no premiered date, it's an upcoming premiere
-    if (!s.premiered) return true;
-    return false;
+    // TMDB shows often don't have scheduled next episodes, so include highly rated ones
+    return true;
   });
 
-  const featured = filtered[0] ?? null;
+  // Sort by rating (highest first), then by nearest airstamp
+  const sorted = filtered.slice().sort((a, b) => {
+    // Primary sort: by rating (descending)
+    const ratingDiff = (b.rating ?? 0) - (a.rating ?? 0);
+    if (ratingDiff !== 0) return ratingDiff;
+    
+    // Secondary sort: by nearest airstamp (shows with upcoming episodes first)
+    const aHasAir = a.nextAirstamp ? new Date(a.nextAirstamp).getTime() : Infinity;
+    const bHasAir = b.nextAirstamp ? new Date(b.nextAirstamp).getTime() : Infinity;
+    return aHasAir - bHasAir;
+  });
+
+  const featured = sorted[0] ?? null;
 
   return (
     <div className="min-h-screen px-8 py-16">
@@ -75,22 +85,7 @@ export default async function Home() {
           </section>
         ) : null}
 
-        <section className="show-grid">
-          <div className="col-span-full">
-            <h2 className="text-2xl font-extrabold mb-4">Up Next</h2>
-            <p className="text-muted text-sm">{filtered.length} shows with upcoming episodes</p>
-          </div>
-          {filtered.map((s, idx) => (
-            <div key={s.id} style={{ animationDelay: `${idx * 50}ms` }} className="animate-in">
-              <ShowCard show={s} />
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className="col-span-full text-center py-12">
-              <p className="text-muted text-lg">No upcoming shows found. Try searching for one!</p>
-            </div>
-          )}
-        </section>
+        <ShowsGrid shows={sorted} />
       </main>
     </div>
   );
